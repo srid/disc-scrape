@@ -62,6 +62,15 @@ Another post's content...
 ---
 ```
 
+## How It Works
+
+1. **Parse the URL** — Extracts the base domain and topic ID from the Discourse thread URL
+2. **Fetch topic metadata** — Calls `/t/{topic_id}.json` to get the topic title and full list of post IDs
+3. **Resolve post metadata** — The first ~20 posts come inline; remaining post IDs are batch-fetched via `/t/{topic_id}/posts.json?post_ids[]=...`
+4. **Download raw Markdown** — For each post, fetches `/raw/{topic_id}/{post_number}` to get the original Markdown source (not rendered HTML)
+5. **Cache** — Each post is cached as a JSON file keyed by post ID. On subsequent runs, posts older than `--cache-days` are served from cache; recent posts are always re-fetched to capture edits
+6. **Render** — All posts are assembled into a single Markdown document with metadata headers, suitable for pasting into an LLM context window
+
 ## Caching
 
 Posts are cached in `{cache_dir}/disc-scrape/{domain}/{topic_id}/` (`~/Library/Caches/` on macOS, `~/.cache/` on Linux). Posts created more than `--cache-days` days ago are served from cache without re-downloading. Recent posts are always re-fetched to capture edits.
