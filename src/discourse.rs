@@ -102,7 +102,7 @@ pub fn fetch_posts_by_ids(
             .get(&url)
             .header("Accept", "application/json")
             .send()
-            .with_context(|| format!("HTTP request failed for batch post fetch"))?;
+            .with_context(|| "HTTP request failed for batch post fetch".to_string())?;
 
         if !resp.status().is_success() {
             bail!("Failed to batch-fetch posts: HTTP {}", resp.status());

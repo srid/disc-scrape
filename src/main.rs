@@ -13,7 +13,7 @@ use std::collections::HashMap;
     about = "Download Discourse thread posts as raw Markdown for LLM consumption"
 )]
 struct Args {
-    /// Discourse thread URL (e.g. https://discuss.example.com/t/topic-slug/12345)
+    /// Discourse thread URL (e.g. `https://discuss.example.com/t/topic-slug/12345`)
     #[arg()]
     url: String,
 
