@@ -14,6 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: nixbuild/nix-quick-install-action@v33
-      - name: Install omnix
-        run: nix --accept-flake-config profile install "github:juspay/omnix"
-      - run: om ci
+      - name: Install vira
+        run: nix --accept-flake-config profile install "github:juspay/vira"
+      - run: vira ci
