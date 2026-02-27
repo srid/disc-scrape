@@ -17,7 +17,7 @@ struct Args {
     #[arg()]
     url: String,
 
-    /// Output file (default: stdout)
+    /// Output file (default: `TOPIC_TITLE.md`)
     #[arg(short, long)]
     output: Option<String>,
 
@@ -166,13 +166,10 @@ fn main() -> Result<()> {
     // Generate output
     let rendered = output::render(&topic.title, &args.url, &posts);
 
-    if let Some(path) = &args.output {
-        std::fs::write(path, &rendered)
-            .with_context(|| format!("Failed to write output to {}", path))?;
-        eprintln!("Output written to {}", path);
-    } else {
-        print!("{}", rendered);
-    }
+    let output_path = args.output.unwrap_or_else(|| format!("{}.md", topic.title));
+    std::fs::write(&output_path, &rendered)
+        .with_context(|| format!("Failed to write output to {}", output_path))?;
+    eprintln!("Output written to {}", output_path);
 
     Ok(())
 }

@@ -14,7 +14,7 @@ disc-scrape [OPTIONS] <URL>
 
 ### Options
 
-- `-o, --output <FILE>` — Write output to a file (default: stdout)
+- `-o, --output <FILE>` — Output file path (default: `<Topic Title>.md`)
 - `-c, --cache-days <N>` — Cache threshold in days (default: 4). Posts older than N days are served from cache.
 - `-v, --verbose` — Show progress and debug information on stderr
 - `-h, --help` — Show help
@@ -23,10 +23,10 @@ disc-scrape [OPTIONS] <URL>
 ### Examples
 
 ```bash
-# Print a thread's posts to stdout
+# Download a thread (writes to '<Topic Title>.md')
 nix run github:srid/disc-scrape -- https://meta.discourse.org/t/some-topic/12345
 
-# Save to a file for LLM use
+# Custom output filename
 nix run github:srid/disc-scrape -- -o thread.md https://meta.discourse.org/t/some-topic/12345
 
 # Force re-download of everything (set cache to 0 days)
