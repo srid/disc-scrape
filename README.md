@@ -24,16 +24,16 @@ disc-scrape [OPTIONS] <URL>
 
 ```bash
 # Print a thread's posts to stdout
-disc-scrape https://meta.discourse.org/t/some-topic/12345
+nix run github:srid/disc-scrape -- https://meta.discourse.org/t/some-topic/12345
 
 # Save to a file for LLM use
-disc-scrape -o thread.md https://meta.discourse.org/t/some-topic/12345
+nix run github:srid/disc-scrape -- -o thread.md https://meta.discourse.org/t/some-topic/12345
 
 # Force re-download of everything (set cache to 0 days)
-disc-scrape -c 0 https://meta.discourse.org/t/some-topic/12345
+nix run github:srid/disc-scrape -- -c 0 https://meta.discourse.org/t/some-topic/12345
 
 # Verbose mode to see download progress
-disc-scrape -v https://meta.discourse.org/t/some-topic/12345
+nix run github:srid/disc-scrape -- -v https://meta.discourse.org/t/some-topic/12345
 ```
 
 ## Output Format
@@ -64,7 +64,7 @@ Another post's content...
 
 ## Caching
 
-Posts are cached in `~/.cache/disc-scrape/{domain}/{topic_id}/`. Posts created more than `--cache-days` days ago are served from cache without re-downloading. Recent posts are always re-fetched to capture edits.
+Posts are cached in `{cache_dir}/disc-scrape/{domain}/{topic_id}/` (`~/Library/Caches/` on macOS, `~/.cache/` on Linux). Posts created more than `--cache-days` days ago are served from cache without re-downloading. Recent posts are always re-fetched to capture edits.
 
 ## Development (Flakes)
 
