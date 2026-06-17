@@ -4,7 +4,9 @@ mod output;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::collections::HashMap;
+use std::io::{IsTerminal, Write};
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -102,73 +104,112 @@ fn main() -> Result<()> {
         }
     }
 
-    // Now iterate through all posts in order, fetching raw content as needed
-    let mut posts: Vec<cache::CachedPost> = Vec::new();
+    // Open the output file up front and write the header, so the file grows
+    // incrementally as posts arrive and stays recoverable mid-scrape.
     let total = all_post_ids.len();
+    let output_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| format!("{}.md", topic.title));
+    let file = std::fs::File::create(&output_path)
+        .with_context(|| format!("Failed to create output file {}", output_path))?;
+    let mut writer = std::io::BufWriter::new(file);
+    writer
+        .write_all(output::render_header(&topic.title, &args.url, total).as_bytes())
+        .with_context(|| format!("Failed to write header to {}", output_path))?;
+    writer
+        .flush()
+        .with_context(|| format!("Failed to flush {}", output_path))?;
 
+    // Progress bar on stderr, on by default. Hide it when verbose (so the
+    // eprintln lines aren't corrupted) or when stderr is not a TTY.
+    let progress = if args.verbose || !std::io::stderr().is_terminal() {
+        ProgressBar::hidden()
+    } else {
+        let bar = ProgressBar::new(total as u64);
+        bar.set_draw_target(ProgressDrawTarget::stderr());
+        bar.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({per_sec}, ETA {eta})",
+            )
+            .unwrap()
+            .progress_chars("=>-"),
+        );
+        bar
+    };
+
+    // Now iterate through all posts in order, fetching raw content as needed,
+    // writing each rendered post to the output file as it becomes available.
     for (i, &post_id) in all_post_ids.iter().enumerate() {
         // Check cache first (keyed by post_id)
-        if let Some(cached) = cache.load_by_id(post_id)? {
-            if cached.created_at < cache_threshold {
-                if args.verbose {
-                    eprintln!(
-                        "[{}/{}] Post #{} (id={}) cached, skipping",
-                        i + 1,
-                        total,
-                        cached.post_number,
-                        post_id
-                    );
-                }
-                posts.push(cached);
-                continue;
+        let post = if let Some(cached) = cache
+            .load_by_id(post_id)?
+            .filter(|c| c.created_at < cache_threshold)
+        {
+            if args.verbose {
+                eprintln!(
+                    "[{}/{}] Post #{} (id={}) cached, skipping",
+                    i + 1,
+                    total,
+                    cached.post_number,
+                    post_id
+                );
             }
-        }
+            cached
+        } else {
+            // Get post metadata
+            let post_data = post_data_by_id
+                .get(&post_id)
+                .with_context(|| format!("No metadata for post id={}", post_id))?;
 
-        // Get post metadata
-        let post_data = post_data_by_id
-            .get(&post_id)
-            .with_context(|| format!("No metadata for post id={}", post_id))?;
+            // Fetch raw markdown via /raw/{topic_id}/{post_number}
+            if args.verbose {
+                eprintln!(
+                    "[{}/{}] Fetching raw post #{} (id={})...",
+                    i + 1,
+                    total,
+                    post_data.post_number,
+                    post_id
+                );
+            }
+            let raw = discourse::fetch_raw_post(&base_url, topic_id, post_data.post_number)
+                .with_context(|| {
+                    format!(
+                        "Failed to fetch raw content for post #{}",
+                        post_data.post_number
+                    )
+                })?;
 
-        // Fetch raw markdown via /raw/{topic_id}/{post_number}
-        if args.verbose {
-            eprintln!(
-                "[{}/{}] Fetching raw post #{} (id={})...",
-                i + 1,
-                total,
-                post_data.post_number,
-                post_id
-            );
-        }
-        let raw = discourse::fetch_raw_post(&base_url, topic_id, post_data.post_number)
-            .with_context(|| {
-                format!(
-                    "Failed to fetch raw content for post #{}",
-                    post_data.post_number
-                )
-            })?;
+            let cached_post = cache::CachedPost {
+                post_number: post_data.post_number,
+                post_id: post_data.id,
+                username: post_data.username.clone(),
+                created_at: post_data.created_at,
+                raw,
+                fetched_at: chrono::Utc::now(),
+            };
 
-        let cached_post = cache::CachedPost {
-            post_number: post_data.post_number,
-            post_id: post_data.id,
-            username: post_data.username.clone(),
-            created_at: post_data.created_at,
-            raw,
-            fetched_at: chrono::Utc::now(),
+            cache.save(&cached_post)?;
+
+            // Small delay to be respectful to the server
+            std::thread::sleep(std::time::Duration::from_millis(200));
+
+            cached_post
         };
 
-        cache.save(&cached_post)?;
-        posts.push(cached_post);
+        // Write this post to the output file and flush so the file stays
+        // recoverable if the scrape is interrupted.
+        writer
+            .write_all(output::render_post(&post).as_bytes())
+            .with_context(|| format!("Failed to write post to {}", output_path))?;
+        writer
+            .flush()
+            .with_context(|| format!("Failed to flush {}", output_path))?;
 
-        // Small delay to be respectful to the server
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        progress.inc(1);
     }
 
-    // Generate output
-    let rendered = output::render(&topic.title, &args.url, &posts);
-
-    let output_path = args.output.unwrap_or_else(|| format!("{}.md", topic.title));
-    std::fs::write(&output_path, &rendered)
-        .with_context(|| format!("Failed to write output to {}", output_path))?;
+    progress.finish_and_clear();
     eprintln!("Output written to {}", output_path);
 
     Ok(())
