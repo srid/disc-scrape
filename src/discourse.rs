@@ -1,6 +1,8 @@
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
+use crate::http::get_with_retry;
+
 /// Parsed topic metadata from Discourse JSON API
 #[derive(Debug, Deserialize)]
 pub struct Topic {
@@ -58,18 +60,17 @@ pub fn parse_topic_url(url_str: &str) -> Result<(String, u64)> {
 }
 
 /// Fetch topic metadata including the full post stream.
-pub fn fetch_topic(base_url: &str, topic_id: u64) -> Result<Topic> {
+pub fn fetch_topic(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    topic_id: u64,
+    verbose: bool,
+) -> Result<Topic> {
     let url = format!("{}/t/{}.json", base_url, topic_id);
-    let client = reqwest::blocking::Client::new();
-    let resp = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .context("HTTP request failed")?;
-
-    if !resp.status().is_success() {
-        bail!("Failed to fetch topic {}: HTTP {}", topic_id, resp.status());
-    }
+    let label = format!("Failed to fetch topic {}", topic_id);
+    let resp = get_with_retry(&label, verbose, || {
+        client.get(&url).header("Accept", "application/json")
+    })?;
 
     let topic: Topic = resp.json().context("Failed to parse topic JSON")?;
     Ok(topic)
@@ -80,12 +81,12 @@ pub fn fetch_topic(base_url: &str, topic_id: u64) -> Result<Topic> {
 /// Uses `/t/{topic_id}/posts.json?post_ids[]=...` endpoint.
 /// Discourse typically allows ~20 IDs per request.
 pub fn fetch_posts_by_ids(
+    client: &reqwest::blocking::Client,
     base_url: &str,
     topic_id: u64,
     post_ids: &[u64],
+    verbose: bool,
 ) -> Result<Vec<PostData>> {
-    let client = reqwest::blocking::Client::new();
-
     let mut all_posts = Vec::new();
 
     // Batch in chunks of 20
@@ -98,15 +99,9 @@ pub fn fetch_posts_by_ids(
             url.push_str(&format!("post_ids[]={}", id));
         }
 
-        let resp = client
-            .get(&url)
-            .header("Accept", "application/json")
-            .send()
-            .with_context(|| "HTTP request failed for batch post fetch".to_string())?;
-
-        if !resp.status().is_success() {
-            bail!("Failed to batch-fetch posts: HTTP {}", resp.status());
-        }
+        let resp = get_with_retry("Failed to batch-fetch posts", verbose, || {
+            client.get(&url).header("Accept", "application/json")
+        })?;
 
         let body: serde_json::Value = resp.json().context("Failed to parse JSON")?;
 
@@ -130,18 +125,16 @@ pub fn fetch_posts_by_ids(
 }
 
 /// Fetch the raw Markdown content for a post via /raw/{topic_id}/{post_number}.
-pub fn fetch_raw_post(base_url: &str, topic_id: u64, post_number: u64) -> Result<String> {
+pub fn fetch_raw_post(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    topic_id: u64,
+    post_number: u64,
+    verbose: bool,
+) -> Result<String> {
     let url = format!("{}/raw/{}/{}", base_url, topic_id, post_number);
-    let client = reqwest::blocking::Client::new();
-    let resp = client.get(&url).send().context("HTTP request failed")?;
-
-    if !resp.status().is_success() {
-        bail!(
-            "Failed to fetch raw post #{}: HTTP {}",
-            post_number,
-            resp.status()
-        );
-    }
+    let label = format!("Failed to fetch raw post #{}", post_number);
+    let resp = get_with_retry(&label, verbose, || client.get(&url))?;
 
     let text = resp.text().context("Failed to read response body")?;
     Ok(text)

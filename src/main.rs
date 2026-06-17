@@ -1,5 +1,6 @@
 mod cache;
 mod discourse;
+mod http;
 mod output;
 
 use anyhow::{Context, Result};
@@ -43,11 +44,17 @@ fn main() -> Result<()> {
         eprintln!("Topic ID: {}", topic_id);
     }
 
+    // A single client reused across every request: connection reuse reduces
+    // the churn that aggravates rate limiting, and retry/backoff lives in
+    // `http::get_with_retry`.
+    let client = reqwest::blocking::Client::new();
+
     // Fetch topic metadata and post stream
     if args.verbose {
         eprintln!("Fetching topic metadata...");
     }
-    let topic = discourse::fetch_topic(&base_url, topic_id).context("Failed to fetch topic")?;
+    let topic = discourse::fetch_topic(&client, &base_url, topic_id, args.verbose)
+        .context("Failed to fetch topic")?;
 
     if args.verbose {
         eprintln!("Topic: {}", topic.title);
@@ -97,8 +104,14 @@ fn main() -> Result<()> {
                 ids_to_fetch.len()
             );
         }
-        let fetched = discourse::fetch_posts_by_ids(&base_url, topic_id, &ids_to_fetch)
-            .context("Failed to batch-fetch posts")?;
+        let fetched = discourse::fetch_posts_by_ids(
+            &client,
+            &base_url,
+            topic_id,
+            &ids_to_fetch,
+            args.verbose,
+        )
+        .context("Failed to batch-fetch posts")?;
         for post in fetched {
             post_data_by_id.insert(post.id, post);
         }
@@ -172,13 +185,19 @@ fn main() -> Result<()> {
                     post_id
                 );
             }
-            let raw = discourse::fetch_raw_post(&base_url, topic_id, post_data.post_number)
-                .with_context(|| {
-                    format!(
-                        "Failed to fetch raw content for post #{}",
-                        post_data.post_number
-                    )
-                })?;
+            let raw = discourse::fetch_raw_post(
+                &client,
+                &base_url,
+                topic_id,
+                post_data.post_number,
+                args.verbose,
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to fetch raw content for post #{}",
+                    post_data.post_number
+                )
+            })?;
 
             let cached_post = cache::CachedPost {
                 post_number: post_data.post_number,
